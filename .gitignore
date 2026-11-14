@@ -1,0 +1,23 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.vscode/
+.idea/
+
+# Datos pesados reconstruibles
+data/
+datasets/
+downloads/
+raw/
+
+# Archivos comprimidos
+*.zip
+*.7z
+*.rar
+
+# Temporales
+*.tmp
+*.log

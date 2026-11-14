@@ -1,0 +1,8 @@
+{
+  "files.watcherExclude": {
+    "**/data/nvd/**": true
+  },
+  "search.exclude": {
+    "**/data/nvd/**": true
+  }
+}
