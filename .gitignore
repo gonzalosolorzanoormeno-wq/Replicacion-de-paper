@@ -21,3 +21,13 @@ raw/
 # Temporales
 *.tmp
 *.log
+
+# Entorno de replicación del paper
+.venv-paper/
+
+# Datos generados de la replicación
+outputs/nvd_snapshot_*.csv
+outputs/panel_*_90d.csv
+outputs/archive/
+src/archive/
+.venv-paper/

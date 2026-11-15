@@ -13,19 +13,19 @@ from xgboost import XGBClassifier
 
 
 # ============================================================
-# ARCHIVOS
+# ARCHIVOS DEFINITIVOS
 # ============================================================
 
 PANEL_ABRIL = Path(
-    "../outputs/panel_2025-04-01_PROVISIONAL.csv"
+    "../outputs/panel_2025-04-01_90d.csv"
 )
 
 PANEL_JULIO = Path(
-    "../outputs/panel_2025-07-01_PROVISIONAL.csv"
+    "../outputs/panel_2025-07-01_90d.csv"
 )
 
 PANEL_OCTUBRE = Path(
-    "../outputs/panel_2025-10-01_PROVISIONAL.csv"
+    "../outputs/panel_2025-10-01_90d.csv"
 )
 
 SALIDA = Path(
@@ -33,6 +33,26 @@ SALIDA = Path(
 )
 
 TARGET = "y_kev_90d"
+
+
+# ============================================================
+# CHECKPOINTS YA REPLICADOS
+# ============================================================
+
+EXPECTED = {
+    "abril": {
+        "n": 152_422,
+        "positivos": 15,
+    },
+    "julio": {
+        "n": 158_281,
+        "positivos": 11,
+    },
+    "octubre": {
+        "n": 158_076,
+        "positivos": 11,
+    },
+}
 
 
 # ============================================================
@@ -59,7 +79,7 @@ CATEGORICAL = [
 
 
 # ============================================================
-# GRID LOGISTIC
+# LOGISTIC
 # ============================================================
 
 LOGISTIC_C = [
@@ -70,7 +90,7 @@ LOGISTIC_C = [
 
 
 # ============================================================
-# GRID XGBOOST EXACTO DEL PAPER
+# XGBOOST - TABLA B2
 # ============================================================
 
 XGB_CONFIGS = [
@@ -125,7 +145,10 @@ XGB_CONFIGS = [
 ]
 
 
-# AP publicados en Tabla B2
+# ============================================================
+# RESULTADOS DEL PAPER - TABLA B2
+# ============================================================
+
 PAPER_XGB_CVSS_AP = [
     0.000134,
     0.000140,
@@ -150,7 +173,7 @@ PAPER_XGB_FUSION_AP = [
 
 
 # ============================================================
-# UTILIDADES
+# VALIDACIÓN DE ARCHIVOS
 # ============================================================
 
 def verificar_archivos():
@@ -164,30 +187,76 @@ def verificar_archivos():
     ]:
 
         if not archivo.exists():
-            faltantes.append(archivo)
+            faltantes.append(
+                archivo
+            )
 
     if faltantes:
 
         print("=" * 78)
-        print("NO SE PUEDE ENTRENAR TODAVÍA")
+        print("FALTAN PANELES")
         print("=" * 78)
 
-        print("\nFaltan estos paneles:")
-
         for archivo in faltantes:
-            print(f"  - {archivo}")
-
-        print(
-            "\nNecesitamos abril + julio para "
-            "entrenamiento y octubre para validación."
-        )
+            print(
+                f"- {archivo}"
+            )
 
         return False
 
     return True
 
 
-def agregar_epss_logit(df):
+def verificar_panel(
+    nombre,
+    df,
+):
+
+    esperado = EXPECTED[
+        nombre
+    ]
+
+    n = len(
+        df
+    )
+
+    positivos = int(
+        df[TARGET].sum()
+    )
+
+    print(
+        f"{nombre.capitalize():<10} "
+        f"N={n:,} "
+        f"| positivos={positivos}"
+    )
+
+    if (
+        n != esperado["n"]
+        or
+        positivos != esperado["positivos"]
+    ):
+
+        raise RuntimeError(
+            f"\nEl panel de {nombre} "
+            f"no coincide con el checkpoint "
+            f"replicado.\n"
+            f"Esperado: "
+            f"N={esperado['n']:,}, "
+            f"positivos="
+            f"{esperado['positivos']}\n"
+            f"Actual: "
+            f"N={n:,}, "
+            f"positivos={positivos}"
+        )
+
+
+# ============================================================
+# LOGIT EPSS
+# ============================================================
+
+def agregar_epss_logit(
+    df
+):
 
     df = df.copy()
 
@@ -199,11 +268,19 @@ def agregar_epss_logit(df):
 
     df["epss_logit"] = np.log(
         epss_clip
-        / (1 - epss_clip)
+        /
+        (
+            1
+            - epss_clip
+        )
     )
 
     return df
 
+
+# ============================================================
+# PREPROCESAMIENTO
+# ============================================================
 
 def make_logistic_preprocessor(
     numeric_features
@@ -219,7 +296,7 @@ def make_logistic_preprocessor(
             (
                 "categorical",
                 OneHotEncoder(
-                    handle_unknown="ignore"
+                    handle_unknown="ignore",
                 ),
                 CATEGORICAL,
             ),
@@ -241,7 +318,7 @@ def make_xgb_preprocessor(
             (
                 "categorical",
                 OneHotEncoder(
-                    handle_unknown="ignore"
+                    handle_unknown="ignore",
                 ),
                 CATEGORICAL,
             ),
@@ -249,9 +326,13 @@ def make_xgb_preprocessor(
     )
 
 
+# ============================================================
+# MODELOS
+# ============================================================
+
 def make_logistic(
     C,
-    numeric_features
+    numeric_features,
 ):
 
     return Pipeline(
@@ -278,7 +359,7 @@ def make_logistic(
 def make_xgb(
     config,
     numeric_features,
-    scale_pos_weight
+    scale_pos_weight,
 ):
 
     return Pipeline(
@@ -295,19 +376,27 @@ def make_xgb(
                     objective="binary:logistic",
 
                     max_depth=(
-                        config["max_depth"]
+                        config[
+                            "max_depth"
+                        ]
                     ),
 
                     n_estimators=(
-                        config["n_estimators"]
+                        config[
+                            "n_estimators"
+                        ]
                     ),
 
                     learning_rate=(
-                        config["learning_rate"]
+                        config[
+                            "learning_rate"
+                        ]
                     ),
 
                     min_child_weight=(
-                        config["min_child_weight"]
+                        config[
+                            "min_child_weight"
+                        ]
                     ),
 
                     subsample=0.8,
@@ -325,9 +414,40 @@ def make_xgb(
                     n_jobs=-1,
 
                     eval_metric="logloss",
+
+                    verbosity=0,
                 ),
             ),
         ]
+    )
+
+
+# ============================================================
+# EVALUACIÓN
+# ============================================================
+
+def calcular_ap(
+    modelo,
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+):
+
+    modelo.fit(
+        X_train,
+        y_train,
+    )
+
+    scores = (
+        modelo.predict_proba(
+            X_val
+        )[:, 1]
+    )
+
+    return average_precision_score(
+        y_val,
+        scores,
     )
 
 
@@ -341,7 +461,12 @@ def main():
         return
 
     print("=" * 78)
-    print("ENTRENAMIENTO Y VALIDACIÓN ML")
+    print(
+        "REPLICACIÓN ML - WANG & XU"
+    )
+    print(
+        "ABRIL + JULIO -> OCTUBRE"
+    )
     print("=" * 78)
 
     # --------------------------------------------------------
@@ -360,20 +485,27 @@ def main():
         PANEL_OCTUBRE
     )
 
-    abril["decision_date"] = (
-        "2025-04-01"
+    print(
+        "\nCHECKPOINT DE PANELES"
     )
 
-    julio["decision_date"] = (
-        "2025-07-01"
+    verificar_panel(
+        "abril",
+        abril,
     )
 
-    octubre["decision_date"] = (
-        "2025-10-01"
+    verificar_panel(
+        "julio",
+        julio,
+    )
+
+    verificar_panel(
+        "octubre",
+        octubre,
     )
 
     # --------------------------------------------------------
-    # POOL DE DESARROLLO
+    # DEVELOPMENT
     # --------------------------------------------------------
 
     development = pd.concat(
@@ -384,6 +516,10 @@ def main():
         ignore_index=True,
     )
 
+    validation = (
+        octubre.copy()
+    )
+
     development = (
         agregar_epss_logit(
             development
@@ -392,41 +528,34 @@ def main():
 
     validation = (
         agregar_epss_logit(
-            octubre
+            validation
         )
     )
 
-    print("\nDESARROLLO")
-
+    print()
+    print("=" * 78)
     print(
-        f"Abril: "
-        f"{len(abril):,}"
+        "DESARROLLO Y VALIDACIÓN"
     )
+    print("=" * 78)
 
     print(
-        f"Julio: "
-        f"{len(julio):,}"
-    )
-
-    print(
-        f"Pool: "
+        f"Development N: "
         f"{len(development):,}"
     )
 
     print(
-        f"Positivos desarrollo: "
+        "Development positivos: "
         f"{int(development[TARGET].sum())}"
     )
 
-    print("\nVALIDACIÓN")
-
     print(
-        f"Octubre: "
+        f"Validation N: "
         f"{len(validation):,}"
     )
 
     print(
-        f"Positivos: "
+        "Validation positivos: "
         f"{int(validation[TARGET].sum())}"
     )
 
@@ -435,18 +564,18 @@ def main():
     # --------------------------------------------------------
 
     y_dev = (
-        development[TARGET]
+        development[
+            TARGET
+        ]
         .astype(int)
     )
 
     y_val = (
-        validation[TARGET]
+        validation[
+            TARGET
+        ]
         .astype(int)
     )
-
-    # --------------------------------------------------------
-    # SCALE_POS_WEIGHT
-    # --------------------------------------------------------
 
     positivos = int(
         y_dev.sum()
@@ -459,7 +588,8 @@ def main():
 
     scale_pos_weight = (
         negativos
-        / positivos
+        /
+        positivos
     )
 
     print(
@@ -473,11 +603,14 @@ def main():
     resultados = []
 
     # ========================================================
-    # 1. LOGISTIC CVSS-ONLY
+    # LOGISTIC CVSS
     # ========================================================
 
-    print("\n" + "=" * 78)
-    print("LOGISTIC CVSS-ONLY")
+    print()
+    print("=" * 78)
+    print(
+        "LOGISTIC CVSS-ONLY"
+    )
     print("=" * 78)
 
     X_dev_cvss = development[
@@ -492,124 +625,128 @@ def main():
 
     for C in LOGISTIC_C:
 
-        model = make_logistic(
+        modelo = make_logistic(
             C=C,
-            numeric_features=NUMERIC_CVSS,
+            numeric_features=(
+                NUMERIC_CVSS
+            ),
         )
 
-        model.fit(
+        ap = calcular_ap(
+            modelo,
             X_dev_cvss,
             y_dev,
-        )
-
-        score = (
-            model.predict_proba(
-                X_val_cvss
-            )[:, 1]
-        )
-
-        ap = average_precision_score(
+            X_val_cvss,
             y_val,
-            score,
         )
 
         print(
             f"C={C:<4} "
-            f"Validation AP={ap:.6f}"
+            f"AP={ap:.9f}"
         )
 
         resultados.append(
             {
-                "modelo": (
-                    "Logistic CVSS"
-                ),
-                "config": (
-                    f"C={C}"
-                ),
-                "validation_ap": ap,
-                "paper_ap": np.nan,
+                "modelo":
+                    "Logistic CVSS",
+
+                "config":
+                    f"C={C}",
+
+                "validation_ap":
+                    ap,
+
+                "paper_ap":
+                    np.nan,
             }
         )
 
     # ========================================================
-    # 2. LOGISTIC FUSION
+    # LOGISTIC FUSION
     # ========================================================
 
-    print("\n" + "=" * 78)
-    print("LOGISTIC FUSION")
+    print()
+    print("=" * 78)
+    print(
+        "LOGISTIC FUSION"
+    )
     print("=" * 78)
 
     NUMERIC_LOGISTIC_FUSION = (
         NUMERIC_CVSS
-        + ["epss_logit"]
+        + [
+            "epss_logit"
+        ]
     )
 
-    X_dev_logfusion = development[
-        NUMERIC_LOGISTIC_FUSION
-        + CATEGORICAL
-    ]
+    X_dev_logfusion = (
+        development[
+            NUMERIC_LOGISTIC_FUSION
+            + CATEGORICAL
+        ]
+    )
 
-    X_val_logfusion = validation[
-        NUMERIC_LOGISTIC_FUSION
-        + CATEGORICAL
-    ]
+    X_val_logfusion = (
+        validation[
+            NUMERIC_LOGISTIC_FUSION
+            + CATEGORICAL
+        ]
+    )
 
     for C in LOGISTIC_C:
 
-        model = make_logistic(
+        modelo = make_logistic(
             C=C,
             numeric_features=(
                 NUMERIC_LOGISTIC_FUSION
             ),
         )
 
-        model.fit(
+        ap = calcular_ap(
+            modelo,
             X_dev_logfusion,
             y_dev,
-        )
-
-        score = (
-            model.predict_proba(
-                X_val_logfusion
-            )[:, 1]
-        )
-
-        ap = average_precision_score(
+            X_val_logfusion,
             y_val,
-            score,
         )
 
         print(
             f"C={C:<4} "
-            f"Validation AP={ap:.6f}"
+            f"AP={ap:.9f}"
         )
 
         resultados.append(
             {
-                "modelo": (
-                    "Logistic fusion"
-                ),
-                "config": (
-                    f"C={C}"
-                ),
-                "validation_ap": ap,
-                "paper_ap": np.nan,
+                "modelo":
+                    "Logistic fusion",
+
+                "config":
+                    f"C={C}",
+
+                "validation_ap":
+                    ap,
+
+                "paper_ap":
+                    np.nan,
             }
         )
 
     # ========================================================
-    # 3. XGBOOST CVSS-ONLY
+    # XGBOOST CVSS
     # ========================================================
 
-    print("\n" + "=" * 78)
-    print("XGBOOST CVSS-ONLY")
+    print()
+    print("=" * 78)
+    print(
+        "XGBOOST CVSS-ONLY"
+    )
     print("=" * 78)
 
     for i, config in enumerate(
         XGB_CONFIGS
     ):
 
-        model = make_xgb(
+        modelo = make_xgb(
             config=config,
             numeric_features=(
                 NUMERIC_CVSS
@@ -619,96 +756,109 @@ def main():
             ),
         )
 
-        model.fit(
+        ap = calcular_ap(
+            modelo,
             X_dev_cvss,
             y_dev,
-        )
-
-        score = (
-            model.predict_proba(
-                X_val_cvss
-            )[:, 1]
-        )
-
-        ap = average_precision_score(
+            X_val_cvss,
             y_val,
-            score,
         )
 
         paper_ap = (
-            PAPER_XGB_CVSS_AP[i]
+            PAPER_XGB_CVSS_AP[
+                i
+            ]
         )
 
         diferencia = (
-            ap - paper_ap
+            ap
+            - paper_ap
         )
 
         config_text = (
-            f"depth={config['max_depth']}, "
-            f"trees={config['n_estimators']}, "
-            f"lr={config['learning_rate']}, "
-            f"child={config['min_child_weight']}"
+            f"depth="
+            f"{config['max_depth']}, "
+            f"trees="
+            f"{config['n_estimators']}, "
+            f"lr="
+            f"{config['learning_rate']}, "
+            f"child="
+            f"{config['min_child_weight']}"
         )
 
         print(
-            f"{i + 1}. "
+            f"\n{i + 1}. "
             f"{config_text}"
         )
 
         print(
-            f"   Réplica AP: "
-            f"{ap:.6f}"
+            f"   Réplica: "
+            f"{ap:.9f}"
         )
 
         print(
-            f"   Paper AP:   "
-            f"{paper_ap:.6f}"
+            f"   Paper:   "
+            f"{paper_ap:.9f}"
         )
 
         print(
-            f"   Diferencia: "
-            f"{diferencia:+.6f}"
+            f"   Dif:     "
+            f"{diferencia:+.9f}"
         )
 
         resultados.append(
             {
-                "modelo": (
-                    "XGBoost CVSS"
-                ),
-                "config": config_text,
-                "validation_ap": ap,
-                "paper_ap": paper_ap,
+                "modelo":
+                    "XGBoost CVSS",
+
+                "config":
+                    config_text,
+
+                "validation_ap":
+                    ap,
+
+                "paper_ap":
+                    paper_ap,
             }
         )
 
     # ========================================================
-    # 4. XGBOOST FUSION
+    # XGBOOST FUSION
     # ========================================================
 
-    print("\n" + "=" * 78)
-    print("XGBOOST FUSION")
+    print()
+    print("=" * 78)
+    print(
+        "XGBOOST FUSION"
+    )
     print("=" * 78)
 
     NUMERIC_XGB_FUSION = (
         NUMERIC_CVSS
-        + ["epss"]
+        + [
+            "epss"
+        ]
     )
 
-    X_dev_xgbfusion = development[
-        NUMERIC_XGB_FUSION
-        + CATEGORICAL
-    ]
+    X_dev_xgbfusion = (
+        development[
+            NUMERIC_XGB_FUSION
+            + CATEGORICAL
+        ]
+    )
 
-    X_val_xgbfusion = validation[
-        NUMERIC_XGB_FUSION
-        + CATEGORICAL
-    ]
+    X_val_xgbfusion = (
+        validation[
+            NUMERIC_XGB_FUSION
+            + CATEGORICAL
+        ]
+    )
 
     for i, config in enumerate(
         XGB_CONFIGS
     ):
 
-        model = make_xgb(
+        modelo = make_xgb(
             config=config,
             numeric_features=(
                 NUMERIC_XGB_FUSION
@@ -718,74 +868,80 @@ def main():
             ),
         )
 
-        model.fit(
+        ap = calcular_ap(
+            modelo,
             X_dev_xgbfusion,
             y_dev,
-        )
-
-        score = (
-            model.predict_proba(
-                X_val_xgbfusion
-            )[:, 1]
-        )
-
-        ap = average_precision_score(
+            X_val_xgbfusion,
             y_val,
-            score,
         )
 
         paper_ap = (
-            PAPER_XGB_FUSION_AP[i]
+            PAPER_XGB_FUSION_AP[
+                i
+            ]
         )
 
         diferencia = (
-            ap - paper_ap
+            ap
+            - paper_ap
         )
 
         config_text = (
-            f"depth={config['max_depth']}, "
-            f"trees={config['n_estimators']}, "
-            f"lr={config['learning_rate']}, "
-            f"child={config['min_child_weight']}"
+            f"depth="
+            f"{config['max_depth']}, "
+            f"trees="
+            f"{config['n_estimators']}, "
+            f"lr="
+            f"{config['learning_rate']}, "
+            f"child="
+            f"{config['min_child_weight']}"
         )
 
         print(
-            f"{i + 1}. "
+            f"\n{i + 1}. "
             f"{config_text}"
         )
 
         print(
-            f"   Réplica AP: "
-            f"{ap:.6f}"
+            f"   Réplica: "
+            f"{ap:.9f}"
         )
 
         print(
-            f"   Paper AP:   "
-            f"{paper_ap:.6f}"
+            f"   Paper:   "
+            f"{paper_ap:.9f}"
         )
 
         print(
-            f"   Diferencia: "
-            f"{diferencia:+.6f}"
+            f"   Dif:     "
+            f"{diferencia:+.9f}"
         )
 
         resultados.append(
             {
-                "modelo": (
-                    "XGBoost fusion"
-                ),
-                "config": config_text,
-                "validation_ap": ap,
-                "paper_ap": paper_ap,
+                "modelo":
+                    "XGBoost fusion",
+
+                "config":
+                    config_text,
+
+                "validation_ap":
+                    ap,
+
+                "paper_ap":
+                    paper_ap,
             }
         )
 
     # ========================================================
-    # RESULTADOS
+    # GUARDAR
     # ========================================================
 
-    resultados_df = pd.DataFrame(
-        resultados
+    resultados_df = (
+        pd.DataFrame(
+            resultados
+        )
     )
 
     resultados_df[
@@ -794,7 +950,8 @@ def main():
         resultados_df[
             "validation_ap"
         ]
-        - resultados_df[
+        -
+        resultados_df[
             "paper_ap"
         ]
     )
@@ -804,49 +961,68 @@ def main():
         index=False,
     )
 
-    # --------------------------------------------------------
-    # MEJORES CONFIGURACIONES
-    # --------------------------------------------------------
+    # ========================================================
+    # MEJORES
+    # ========================================================
 
-    print("\n" + "=" * 78)
-    print("MEJORES CONFIGURACIONES")
+    print()
+    print("=" * 78)
+    print(
+        "MEJORES CONFIGURACIONES"
+    )
     print("=" * 78)
 
-    for modelo in [
+    for nombre in [
         "Logistic CVSS",
         "Logistic fusion",
         "XGBoost CVSS",
         "XGBoost fusion",
     ]:
 
-        subset = resultados_df[
+        subset = (
             resultados_df[
-                "modelo"
-            ] == modelo
-        ]
+                resultados_df[
+                    "modelo"
+                ]
+                == nombre
+            ]
+        )
 
-        mejor = subset.loc[
+        indice = (
             subset[
                 "validation_ap"
             ].idxmax()
-        ]
+        )
 
-        print(
-            f"\n{modelo}"
+        mejor = (
+            resultados_df.loc[
+                indice
+            ]
         )
 
         print(
-            f"  Config: "
+            f"\n{nombre}"
+        )
+
+        print(
+            f"Config: "
             f"{mejor['config']}"
         )
 
         print(
-            f"  AP: "
-            f"{mejor['validation_ap']:.6f}"
+            f"AP: "
+            f"{mejor['validation_ap']:.9f}"
         )
 
-    print("\n" + "=" * 78)
-    print("REFERENCIA DEL PAPER")
+    # ========================================================
+    # CHECKPOINT DEL PAPER
+    # ========================================================
+
+    print()
+    print("=" * 78)
+    print(
+        "CHECKPOINT WANG & XU"
+    )
     print("=" * 78)
 
     print(
@@ -859,7 +1035,7 @@ def main():
     )
 
     print(
-        "AP ≈ 0.000146"
+        "AP = 0.000146"
     )
 
     print(
@@ -872,11 +1048,12 @@ def main():
     )
 
     print(
-        "AP ≈ 0.000938"
+        "AP = 0.000938"
     )
 
+    print()
     print(
-        "\nResultados guardados en:"
+        "Archivo generado:"
     )
 
     print(
